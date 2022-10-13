@@ -1,102 +1,90 @@
-use std::cmp::Ordering;
-
-use cosmwasm_std::Storage;
+use cosmwasm_std::{StdResult, StdError, CanonicalAddr, Storage};
 use cosmwasm_storage::{
-    ReadonlySingleton, singleton, Singleton,
-    singleton_read,
+    Singleton, singleton, ReadonlySingleton, singleton_read, 
+    PrefixedStorage, ReadonlyPrefixedStorage
 };
 
-use serde::{Deserialize, Serialize};
+use serde::{Serialize, Deserialize};
 
-const CONFIG_KEY: &[u8] = b"config";
+pub const KEY_CONFIG: &[u8] = b"config";
+pub const PREFIX_BALANCES: &[u8] = b"balances";
+pub const PREFIX_EVENTS: &[u8] = b"events";
+pub const PREFIX_TICKETS: &[u8] = b"tickets";
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub struct State {
-    pub state: ContractState,
-    pub player1: Millionaire,
-    pub player2: Millionaire
+
+#[derive(Serialize, Deserialize)]
+pub struct Config {
+    pub owner: CanonicalAddr
 }
 
-#[derive(Serialize, Deserialize, PartialEq, Clone, Debug)]
-pub enum ContractState {
-    Init,
-    Got1,
-    Done
-}
-
-impl Default for ContractState {
-    fn default() -> Self {
-        Self::Init
-    }
-}
-
-impl From<u8> for ContractState {
-    fn from(num: u8) -> Self {
-        match num {
-            0 => ContractState::Init,
-            1 => ContractState::Got1,
-            2 => ContractState::Done,
-            _ => ContractState::Init
+impl Config {
+    pub fn new(owner: CanonicalAddr) -> Self {
+        Self {
+            owner: owner
         }
     }
 }
 
-impl From<ContractState> for u8 {
-    fn from(state: ContractState) -> Self {
-        match state {
-            ContractState::Init => 0,
-            ContractState::Got1 => 1,
-            ContractState::Done => 2
+pub fn get_config(storage: &mut dyn Storage) -> Singleton<Config> {
+    singleton(storage, KEY_CONFIG)
+}
+
+pub fn get_config_readonly(storage: &dyn Storage) -> ReadonlySingleton<Config> {
+    singleton_read(storage, KEY_CONFIG)
+}
+
+
+pub struct ReadonlyBalances<'a> {
+    storage: ReadonlyPrefixedStorage<'a>
+}
+
+impl<'a> ReadonlyBalances<'a> {
+    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(storage, PREFIX_BALANCES)
+        }
+    }
+
+    pub fn read_account_balance(& mut self, account: &CanonicalAddr) -> u128 {
+        let account_bytes = account.as_slice();
+        let result = self.storage.get(account_bytes);
+        match result {
+            Some(balance_bytes) => slice_to_u128(&balance_bytes).unwrap(),
+            None => 0,
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq)]
-pub struct Millionaire {
-    name: String,
-    worth: u64
+pub struct Balances<'a> {
+    storage: PrefixedStorage<'a>,
 }
 
-impl Millionaire {
-    /// Constructor function. Takes input parameters and initializes a struct containing both
-    /// those items
-    pub fn new(name: String, worth: u64) -> Millionaire {
-        return Millionaire {
-            name,
-            worth
+impl<'a> Balances<'a> {
+    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+        Self {
+            storage: PrefixedStorage::new(storage, PREFIX_BALANCES),
         }
     }
 
-    /// Viewer function to read the private member of the Millionaire struct.
-    /// We could make the member public instead and access it directly if we wanted to simplify
-    /// access patterns
-    pub fn name(&self) -> &String {
-        &self.name
+    pub fn set_account_balance(& mut self, account: &CanonicalAddr, amount: u128) {
+        self.storage.set(account.as_slice(), &amount.to_be_bytes());
+    }
+
+    pub fn read_account_balance(& mut self, account: &CanonicalAddr) -> u128 {
+        let account_bytes = account.as_slice();
+        let result = self.storage.get(account_bytes);
+        match result {
+            Some(balance_bytes) => slice_to_u128(&balance_bytes).unwrap(),
+            None => 0,
+        }
     }
 }
 
-impl PartialOrd for Millionaire {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
+fn slice_to_u128(data: &[u8]) -> StdResult<u128> {
+    match <[u8; 16]>::try_from(data) {
+        Ok(bytes) => Ok(u128::from_be_bytes(bytes)),
+        Err(_) => Err(StdError::generic_err(
+            "Corrupted data found. 16 byte expected.",
+        )),
     }
-}
-
-impl Ord for Millionaire {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.worth.cmp(&other.worth)
-    }
-}
-
-impl PartialEq for Millionaire {
-    fn eq(&self, other: &Self) -> bool {
-        self.worth == other.worth
-    }
-}
-
-pub fn config(storage: &mut dyn Storage) -> Singleton<State> {
-    singleton(storage, CONFIG_KEY)
-}
-
-pub fn config_read(storage: &dyn Storage) -> ReadonlySingleton<State> {
-    singleton_read(storage, CONFIG_KEY)
 }

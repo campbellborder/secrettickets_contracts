@@ -1,10 +1,10 @@
 [package]
-name = "millionaire-problem"
+name = "secrettickets"
 version = "0.0.0"
-authors = ["Itzik Grossman <itzik@scrtlabs.com>"]
+authors = ["Campbell Border <campbell.border@uqconnect.edu.au>"]
 edition = "2021"
 publish = false
-description = "A simple secret contract that solves the millionaire's problem on Secret Network"
+description = "Privacy preserving event ticketing system"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
