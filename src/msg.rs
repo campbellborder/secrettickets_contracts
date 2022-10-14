@@ -10,10 +10,10 @@ pub struct InstantiateMsg {}
 pub enum ExecuteMsg {
     Deposit {},
     Withdraw {amount: Uint128},
-    CreateEvent {},
-    BuyTicket {},
-    VerifyTicket {},
-    VerifyGuest {}
+    CreateEvent {price: Uint128, max_tickets: Uint128},
+    BuyTicket {event_id: Uint128},
+    VerifyTicket {ticket_id: Uint128},
+    VerifyGuest {secret: Uint128}
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
