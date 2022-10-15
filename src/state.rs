@@ -224,14 +224,14 @@ impl<'a> ReadonlyEvents<'a> {
 }
 
 // Enum for state of ticket 
-#[derive(Clone, Copy, Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
 pub enum TicketState {
-    Idle,
-    Validating,
-    Used // OR SHOULD WE DELETE THE TICKET
+    Idle = 0,
+    Validating = 1,
+    Used = 2
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Ticket {
     id: u128,
     guest: CanonicalAddr,
@@ -265,6 +265,22 @@ impl Ticket {
 
     pub fn get_state(&self) -> TicketState {
         self.state
+    }
+
+    pub fn start_validation(&mut self) -> u128 {
+        self.state = TicketState::Validating;
+        self.secret = 69;
+        self.secret
+    }
+
+    pub fn try_verify(&mut self, secret: u128) -> StdResult<()> {
+        if self.secret != secret {
+            return Err(StdError::generic_err("Secret does not match"));
+        }
+
+        self.secret = 0;
+        self.state = TicketState::Used;
+        Ok(())
     }
 }
 

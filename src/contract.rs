@@ -8,7 +8,7 @@ use crate::state::{
     Config, get_config, get_config_readonly,
     Balances, 
     Event, Events, ReadonlyEvents,
-    Ticket, Tickets
+    Ticket, Tickets, ReadonlyTickets
 };
 
 #[entry_point]
@@ -43,7 +43,7 @@ pub fn execute(
         }
         ExecuteMsg::BuyTicket { event_id } => try_buy_ticket(deps, info, event_id),
         ExecuteMsg::VerifyTicket { ticket_id } => try_verify_ticket(deps, info, ticket_id),
-        ExecuteMsg::VerifyGuest { secret } => try_verify_guest(deps, info, secret),
+        ExecuteMsg::VerifyGuest { ticket_id, secret } => try_verify_guest(deps, info, ticket_id, secret),
     }
 }
 
@@ -182,8 +182,10 @@ pub fn try_buy_ticket(
         )));
     }
 
-    // Withdraw funds
+    // Transfer funds
     balances.set_account_balance(&guest, guest_balance - event_price);
+    let organiser_balance = balances.read_account_balance(event.get_organiser());
+    balances.set_account_balance(event.get_organiser(), organiser_balance + event_price);
 
     // Record ticket sale in event
     event.ticket_sold();
@@ -207,19 +209,82 @@ pub fn try_buy_ticket(
 }
 
 pub fn try_verify_ticket(
-    _deps: DepsMut,
-    _info: MessageInfo,
-    _ticket_id: Uint128,
+    deps: DepsMut,
+    info: MessageInfo,
+    ticket_id: Uint128,
 ) -> Result<Response, StdError> {
-    Ok(Response::default())
+
+    // Get raw inputs and 'organiser' address
+    let ticket_id_raw = ticket_id.u128();
+    let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
+
+    // Ensure ticket exists and load it
+    let tickets = ReadonlyTickets::from_storage(deps.storage);
+    let mut ticket = match tickets.may_load_ticket(ticket_id_raw) {
+        Some(ticket) => ticket.clone(),
+        None => {
+            return Err(StdError::generic_err(format!("Ticket does not exist")));
+        }
+    };
+
+    // Check message sender is organiser of event
+    let events = ReadonlyEvents::from_storage(deps.storage);
+    let event = events.may_load_event(ticket.get_event_id()).unwrap();
+    if *event.get_organiser() != organiser {
+        return Err(StdError::generic_err(format!("You are not the organiser of this event")));
+    }
+
+    // Generate secret and set ticket status to validating
+    let secret = ticket.start_validation();
+    let mut tickets = Tickets::from_storage(deps.storage);
+    tickets.store_ticket(ticket_id_raw, &ticket);
+
+    // Encrypt with public key of guest - NOT IMPLEMENTED
+    let secret_encrypted = secret * 2;
+
+    // Respond with encrypted secret
+    let response = Response::new().add_attribute("secret_encrypted", secret_encrypted.to_string());
+    Ok(response)
 }
 
 pub fn try_verify_guest(
-    _deps: DepsMut,
-    _info: MessageInfo,
-    _secret: Uint128,
+    deps: DepsMut,
+    info: MessageInfo,
+    ticket_id: Uint128,
+    secret: Uint128,
 ) -> Result<Response, StdError> {
-    Ok(Response::default())
+
+    // Get raw inputs and 'organiser' address
+    let ticket_id_raw = ticket_id.u128();
+    let secret_raw = secret.u128();
+    let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
+
+    // Ensure ticket exists and load it
+    let tickets = ReadonlyTickets::from_storage(deps.storage);
+    let mut ticket = match tickets.may_load_ticket(ticket_id_raw) {
+        Some(ticket) => ticket.clone(),
+        None => {
+            return Err(StdError::generic_err(format!("Ticket does not exist")));
+        }
+    };
+
+    // Check message sender is organiser of event
+    let events = ReadonlyEvents::from_storage(deps.storage);
+    let event = events.may_load_event(ticket.get_event_id()).unwrap();
+    if *event.get_organiser() != organiser {
+        return Err(StdError::generic_err(format!("You are not the organiser of this event")));
+    }
+
+    // Check if secret is correct
+    match ticket.try_verify(secret_raw) {
+        Ok(()) => {
+            let mut tickets = Tickets::from_storage(deps.storage);
+            tickets.store_ticket(ticket_id_raw, &ticket);
+            Ok(Response::default())
+        },
+        Err(err) => Err(err)
+    }
+
 }
 
 fn _query_owner(deps: Deps) -> StdResult<OwnerResponse> {
@@ -241,7 +306,7 @@ fn query_event_sold_out() -> StdResult<SoldOutResponse> {
 mod tests {
     use super::*;
 
-    use crate::state::{ReadonlyBalances, ReadonlyTickets};
+    use crate::state::{ReadonlyBalances, TicketState};
     use cosmwasm_std::coins;
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
@@ -389,6 +454,61 @@ mod tests {
         let balances = ReadonlyBalances::from_storage(deps.as_mut().storage);
         let guest_balance = balances.read_account_balance(&guest_address);
         assert_eq!(guest_balance, 950);
+
+        // Check organiser balance decreased
+        let organiser_address = deps.api.addr_canonicalize(owner.as_str()).unwrap();
+        let balances = ReadonlyBalances::from_storage(deps.as_mut().storage);
+        let organiser_balance = balances.read_account_balance(&organiser_address);
+        assert_eq!(organiser_balance, 50);        
+    }
+
+    #[test] 
+    fn verify_ticket_proper() {
+        // Instantiate contract
+        let (owner, mut deps, _, _) = instantiate_test();
+
+        // Deposit tokens
+        let guest = deps.api.addr_validate("guest").unwrap();
+        let deposit_info = mock_info(guest.as_str(), &coins(1000, "uscrt"));
+        let _deposit_resp = try_deposit(deps.as_mut(), deposit_info).unwrap();
+
+        // Create event
+        let price = Uint128::from(50u128);
+        let max_tickets = Uint128::from(500u128);
+        let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
+        let attribute = resp.attributes.pop().unwrap();
+        let event_id: u128 = attribute.value.parse().unwrap();
+
+        // Buy ticket
+        let info = mock_info(guest.as_str(), &coins(0, "uscrt"));
+        let mut resp = try_buy_ticket(deps.as_mut(), info, Uint128::from(event_id)).unwrap();
+
+        // Get ticket
+        let attribute = resp.attributes.pop().unwrap();
+        let ticket_id: u128 = attribute.value.parse().unwrap();
+
+        // Begin to verify ticket and get secret
+        let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
+        let mut resp = try_verify_ticket(deps.as_mut(), info, Uint128::from(ticket_id)).unwrap();
+        let attribute = resp.attributes.pop().unwrap();
+        assert_eq!(attribute.key, "secret_encrypted");
+        assert_eq!(attribute.value, "138");
+        let _secret_encrypted: u128 = attribute.value.parse().unwrap();
+
+        // Check ticket is in validating state
+        let tickets = ReadonlyTickets::from_storage(deps.as_mut().storage);
+        let ticket = tickets.may_load_ticket(ticket_id).unwrap();
+        assert_eq!(ticket.get_state(), TicketState::Validating);
+
+        // Validate guest
+        let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
+        try_verify_guest(deps.as_mut(), info, Uint128::from(ticket_id), Uint128::from(69u128)).unwrap();
+
+        // Check ticket is in used state
+        let tickets = ReadonlyTickets::from_storage(deps.as_mut().storage);
+        let ticket = tickets.may_load_ticket(ticket_id).unwrap();
+        assert_eq!(ticket.get_state(), TicketState::Used);
 
     }
 
