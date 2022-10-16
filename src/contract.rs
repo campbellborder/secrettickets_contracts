@@ -1,12 +1,12 @@
 use cosmwasm_std::{
     entry_point, to_binary, BankMsg, Coin, Deps, DepsMut, Env, MessageInfo, QueryResponse,
-    Response, StdError, StdResult, Uint128,
+    Response, StdError, StdResult, Uint128, Addr,
 };
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, OwnerResponse, QueryMsg, SoldOutResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SoldOutResponse, BalanceResponse};
 use crate::state::{
-    Config, get_config, get_config_readonly,
-    Balances, 
+    Config, get_config,
+    Balances, ReadonlyBalances,
     Event, Events, ReadonlyEvents,
     Ticket, Tickets, ReadonlyTickets
 };
@@ -48,9 +48,10 @@ pub fn execute(
 }
 
 #[entry_point]
-pub fn query(_deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<QueryResponse> {
+pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<QueryResponse> {
     match msg {
-        QueryMsg::EventSoldOut {} => to_binary(&query_event_sold_out()?),
+        QueryMsg::EventSoldOut {event_id} => to_binary(&query_event_sold_out(deps, event_id)?),
+        QueryMsg::Balance {address} => to_binary(&query_balance(deps, address)?)
     }
 }
 
@@ -227,6 +228,11 @@ pub fn try_verify_ticket(
         }
     };
 
+    // Ensure ticket is not used
+    if ticket.get_state() == 2 {
+        return Err(StdError::generic_err(format!("Ticket has already been used")));
+    }
+
     // Check message sender is organiser of event
     let events = ReadonlyEvents::from_storage(deps.storage);
     let event = events.may_load_event(ticket.get_event_id()).unwrap();
@@ -268,6 +274,14 @@ pub fn try_verify_guest(
         }
     };
 
+    // Ensure ticket is in validating state
+    match ticket.get_state() {
+        0 => return Err(StdError::generic_err(format!("Validation of ticket not initiated yet"))),
+        1 => (),
+        2 => return Err(StdError::generic_err(format!("Ticket has already been used"))),
+        _ => return Err(StdError::generic_err(format!("Ticket is somehow in invalid state"))),
+    };
+
     // Check message sender is organiser of event
     let events = ReadonlyEvents::from_storage(deps.storage);
     let event = events.may_load_event(ticket.get_event_id()).unwrap();
@@ -287,26 +301,32 @@ pub fn try_verify_guest(
 
 }
 
-fn _query_owner(deps: Deps) -> StdResult<OwnerResponse> {
-    let config = get_config_readonly(deps.storage).load()?;
-    let resp = OwnerResponse {
-        owner: deps.api.addr_humanize(config.get_owner()).unwrap(),
-    };
+fn query_event_sold_out(deps: Deps, event_id: Uint128) -> StdResult<SoldOutResponse> {
 
-    Ok(resp)
+    let event_id_raw = event_id.u128();
+    let events = ReadonlyEvents::from_storage(deps.storage);
+    match events.may_load_event(event_id_raw) {
+        Some(event) => {
+            Ok(SoldOutResponse { sold_out: event.is_sold_out() })
+        }
+        None => {
+            Err(StdError::generic_err(format!("Event does not exist",)))
+        }
+    }
 }
 
-fn query_event_sold_out() -> StdResult<SoldOutResponse> {
-    let resp = SoldOutResponse { sold_out: true };
+fn query_balance(deps: Deps, address: Addr) -> StdResult<BalanceResponse> {
 
-    Ok(resp)
+    let address_canon = deps.api.addr_canonicalize(address.as_str())?;
+    let balances = ReadonlyBalances::from_storage(deps.storage);
+    Ok(BalanceResponse {balance: Uint128::from(balances.read_account_balance(&address_canon))})
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use crate::state::{ReadonlyBalances, TicketState};
+    use crate::state::{ReadonlyBalances, get_config_readonly};
     use cosmwasm_std::coins;
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
@@ -337,8 +357,8 @@ mod tests {
         let (owner, deps, _, _) = instantiate_test();
 
         // Check if owner is correct
-        let owner_resp = _query_owner(deps.as_ref()).unwrap();
-        assert_eq!(owner_resp.owner, owner);
+        let config = get_config_readonly(&deps.storage).load().unwrap();
+        assert_eq!(deps.api.addr_humanize(config.get_owner()).unwrap(), owner);
     }
 
     #[test]
@@ -499,7 +519,7 @@ mod tests {
         // Check ticket is in validating state
         let tickets = ReadonlyTickets::from_storage(deps.as_mut().storage);
         let ticket = tickets.may_load_ticket(ticket_id).unwrap();
-        assert_eq!(ticket.get_state(), TicketState::Validating);
+        assert_eq!(ticket.get_state(), 1);
 
         // Validate guest
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
@@ -508,7 +528,7 @@ mod tests {
         // Check ticket is in used state
         let tickets = ReadonlyTickets::from_storage(deps.as_mut().storage);
         let ticket = tickets.may_load_ticket(ticket_id).unwrap();
-        assert_eq!(ticket.get_state(), TicketState::Used);
+        assert_eq!(ticket.get_state(), 2);
 
     }
 

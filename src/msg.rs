@@ -1,4 +1,4 @@
-use cosmwasm_std::{Addr, Uint128};
+use cosmwasm_std::{Uint128, Addr};
 
 use serde::{Deserialize, Serialize};
 
@@ -31,7 +31,12 @@ pub enum ExecuteMsg {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryMsg {
-    EventSoldOut {},
+    Balance {
+        address: Addr
+    },
+    EventSoldOut {
+        event_id: Uint128
+    },
 }
 
 // Response for EventSoldOut query
@@ -42,6 +47,6 @@ pub struct SoldOutResponse {
 
 // Response for EventSoldOut query
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct OwnerResponse {
-    pub owner: Addr,
+pub struct BalanceResponse {
+    pub balance: Uint128,
 }

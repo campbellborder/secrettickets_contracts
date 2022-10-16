@@ -6,7 +6,7 @@ tasks:
   - command: |
       cd /home/gitpod/ && SCRT_SGX_STORAGE=/opt/secret/.sgx_secrets /home/gitpod/bootstrap_init.sh false
   - command: |
-      echo "Hello and welcome to the Secret Network"
+      secretcli config node https://rpc.pulsar.scrttestnet.com && secretcli config output json && secretcli config chain-id pulsar-2 
       
 vscode:
   extensions:

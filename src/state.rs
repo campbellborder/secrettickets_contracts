@@ -72,7 +72,7 @@ pub struct ReadonlyBalances<'a> {
 impl<'a> ReadonlyBalances<'a> {
 
     // Retrieve prefixed storage
-    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+    pub fn from_storage(storage: &'a dyn Storage) -> Self {
         Self {
             storage: ReadonlyPrefixedStorage::new(storage, PREFIX_BALANCES)
         }
@@ -207,7 +207,7 @@ pub struct ReadonlyEvents<'a> {
 impl<'a> ReadonlyEvents<'a> {
 
     // Retrieve prefixed storage
-    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+    pub fn from_storage(storage: &'a dyn Storage) -> Self {
         Self {
             storage: ReadonlyPrefixedStorage::new(storage, PREFIX_EVENTS)
         }
@@ -223,20 +223,12 @@ impl<'a> ReadonlyEvents<'a> {
     }
 }
 
-// Enum for state of ticket 
-#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq)]
-pub enum TicketState {
-    Idle = 0,
-    Validating = 1,
-    Used = 2
-}
-
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Ticket {
     id: u128,
     guest: CanonicalAddr,
     event_id: u128,
-    state: TicketState,
+    state: u8,
     secret: u128
 }
 
@@ -246,7 +238,7 @@ impl Ticket {
             id: id, 
             event_id: event_id, 
             guest: guest,
-            state: TicketState::Idle,
+            state: 0,
             secret: 0
         }
     }
@@ -263,12 +255,12 @@ impl Ticket {
         &self.guest
     }
 
-    pub fn get_state(&self) -> TicketState {
+    pub fn get_state(&self) -> u8 {
         self.state
     }
 
     pub fn start_validation(&mut self) -> u128 {
-        self.state = TicketState::Validating;
+        self.state = 1;
         self.secret = 69;
         self.secret
     }
@@ -279,7 +271,7 @@ impl Ticket {
         }
 
         self.secret = 0;
-        self.state = TicketState::Used;
+        self.state = 2;
         Ok(())
     }
 }
@@ -323,7 +315,7 @@ pub struct ReadonlyTickets<'a> {
 impl<'a> ReadonlyTickets<'a> {
 
     // Retrieve prefixed storage
-    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+    pub fn from_storage(storage: &'a dyn Storage) -> Self {
         Self {
             storage: ReadonlyPrefixedStorage::new(storage, PREFIX_TICKETS)
         }
