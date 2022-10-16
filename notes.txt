@@ -1,16 +1,16 @@
-code uploaded 16/8 11:06 
+code uploaded 16/8 3:14 
 (secret is 69 and enc doubles it -> 138)
     {
-        "code_id": 14458,
+        "code_id": 14465,
         "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
-        "code_hash": "ae9bff05ac1baced50039e281503a163a194dcbe848051e71f4971044d188386"
+        "code_hash": "d880c3e988ff7f0ab6fad6612337f00d784645443d2c0a1921a8a97c86eb750c"
     }
 
 contract instantiated 
     {
-        "contract_address": "secret16sntkm7sjkumdv55cvnxl0laly8kle6dgsmf28",
-        "code_id": 14458,
+        "contract_address": "secret1h3dh4uf4ukxjyaudvj4t5ss3xnxp6e3gktrftj",
+        "code_id": 14465,
         "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
-        "label": "secretticketsV1"
+        "label": "secretticketsV3"
     }
     
