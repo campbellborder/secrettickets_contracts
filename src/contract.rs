@@ -138,6 +138,7 @@ pub fn try_create_event(
     // Get next event ID
     let mut config = get_config(deps.storage).load()?;
     let event_id = config.get_next_event_id();
+    get_config(deps.storage).save(&config)?;
 
     // Create event
     let event = Event::new(event_id, organiser_address, price_raw, max_tickets_raw);
@@ -196,6 +197,7 @@ pub fn try_buy_ticket(
     // Get next ticket id
     let mut config = get_config(deps.storage).load()?;
     let ticket_id = config.get_next_ticket_id();
+    get_config(deps.storage).save(&config)?;
 
     // Create ticket
     let ticket = Ticket::new(ticket_id, event_id_raw, guest);
@@ -426,6 +428,15 @@ mod tests {
         assert_eq!(event.get_max_tickets(), max_tickets.u128());
         assert_eq!(event.get_tickets_sold(), 0);
         assert_eq!(deps.api.addr_humanize(event.get_organiser()).unwrap(), owner);
+
+        // Create event
+        let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
+        
+        // Check proper event ID emitted
+        let attribute = resp.attributes.pop().unwrap();
+        assert_eq!(attribute.key, "event_id");
+        assert_eq!(attribute.value, "2");        
     }
 
     #[test]
