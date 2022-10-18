@@ -357,11 +357,19 @@ fn query_tickets(deps: Deps, address: Addr) -> StdResult<TicketsResponse> {
     let address_canon = deps.api.addr_canonicalize(address.as_str())?;
     let guests_tickets= ReadonlyGuestsTickets::from_storage(deps.storage);
     let this_guests_tickets = guests_tickets.load_tickets(&address_canon);
-    let mut return_vec = vec![];
-    for event in this_guests_tickets {
-        return_vec.push(Uint128::from(event));
+    let tickets = ReadonlyTickets:: from_storage(deps.storage);
+
+    let mut tickets_vec = vec![];
+    let mut events_vec = vec![];
+    for ticket_id in this_guests_tickets {
+        // Add ticket id to vec
+        tickets_vec.push(Uint128::from(ticket_id));
+
+        // Load ticket
+        let ticket = tickets.may_load_ticket(ticket_id).unwrap();
+        events_vec.push(Uint128::from(ticket.get_event_id()));
     }
-    Ok(TicketsResponse {tickets: return_vec})
+    Ok(TicketsResponse {tickets: tickets_vec, events: events_vec})
 }
 
 #[cfg(test)]

@@ -67,4 +67,5 @@ pub struct EventsResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct TicketsResponse {
     pub tickets: Vec<Uint128>,
+    pub events: Vec<Uint128>
 }

@@ -33,3 +33,21 @@ contract instantiated
         "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
         "label": "secretticketsV6"
     }
+
+
+code uploaded 18/10 12:45
+(secret is 69 and enc doubles it -> 138)
+CAN READ ORGANISERS EVENTS AND GUESTS TICKETS
+    {
+        "code_id": 14586,
+        "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
+        "code_hash": "713ce40b5ce09421b55f93e7e6d6cb4e63a5905ae9baaa04f95618204b920d9c"
+    }
+
+contract instantiated
+    {
+        "contract_address": "secret1fq567acajzcmzt758htctvcf8sxysae7969se2",
+        "code_id": 14586,
+        "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
+        "label": "secretticketsV7"
+    }
