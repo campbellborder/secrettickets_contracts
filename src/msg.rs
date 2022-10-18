@@ -37,6 +37,12 @@ pub enum QueryMsg {
     EventSoldOut {
         event_id: Uint128
     },
+    Events {
+        address: Addr
+    },
+    Tickets {
+        address: Addr
+    }
 }
 
 // Response for EventSoldOut query
@@ -45,8 +51,20 @@ pub struct SoldOutResponse {
     pub sold_out: bool,
 }
 
-// Response for EventSoldOut query
+// Response for Balance query
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BalanceResponse {
     pub balance: Uint128,
+}
+
+// Response for Events query
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct EventsResponse {
+    pub events: Vec<Uint128>,
+}
+
+// Response for Tickets query
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct TicketsResponse {
+    pub tickets: Vec<Uint128>,
 }

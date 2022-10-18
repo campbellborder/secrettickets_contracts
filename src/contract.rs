@@ -3,12 +3,14 @@ use cosmwasm_std::{
     Response, StdError, StdResult, Uint128, Addr,
 };
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SoldOutResponse, BalanceResponse};
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SoldOutResponse, BalanceResponse, EventsResponse, TicketsResponse};
 use crate::state::{
     Config, get_config,
     Balances, ReadonlyBalances,
     Event, Events, ReadonlyEvents,
-    Ticket, Tickets, ReadonlyTickets
+    Ticket, Tickets, ReadonlyTickets,
+    OrganisersEvents, ReadonlyOrganisersEvents,
+    GuestsTickets, ReadonlyGuestsTickets
 };
 
 #[entry_point]
@@ -51,7 +53,9 @@ pub fn execute(
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<QueryResponse> {
     match msg {
         QueryMsg::EventSoldOut {event_id} => to_binary(&query_event_sold_out(deps, event_id)?),
-        QueryMsg::Balance {address} => to_binary(&query_balance(deps, address)?)
+        QueryMsg::Balance {address} => to_binary(&query_balance(deps, address)?),
+        QueryMsg::Events { address } => to_binary(&query_events(deps, address)?),
+        QueryMsg::Tickets { address } => to_binary(&query_tickets(deps, address)?)
     }
 }
 
@@ -133,7 +137,7 @@ pub fn try_create_event(
     // Get raw inputs and organiser address
     let price_raw = price.u128();
     let max_tickets_raw = max_tickets.u128();
-    let organiser_address = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
+    let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Get next event ID
     let mut config = get_config(deps.storage).load()?;
@@ -141,11 +145,17 @@ pub fn try_create_event(
     get_config(deps.storage).save(&config)?;
 
     // Create event
-    let event = Event::new(event_id, organiser_address, price_raw, max_tickets_raw);
+    let event = Event::new(event_id, organiser.clone(), price_raw, max_tickets_raw);
 
-    // Store event
+    // Store event in events
     let mut events = Events::from_storage(deps.storage);
     events.store_event(event_id, &event);
+
+    // Store event in organisers events
+    let mut organisers_events = OrganisersEvents::from_storage(deps.storage);
+    let mut this_organisers_events = organisers_events.load_events(&organiser);
+    this_organisers_events.push(event_id);
+    organisers_events.store_events(&organiser, &this_organisers_events);
 
     // Respond with eventID
     let response = Response::new().add_attribute("event_id", event_id.to_string());
@@ -200,11 +210,17 @@ pub fn try_buy_ticket(
     get_config(deps.storage).save(&config)?;
 
     // Create ticket
-    let ticket = Ticket::new(ticket_id, event_id_raw, guest);
+    let ticket = Ticket::new(ticket_id, event_id_raw, guest.clone());
 
-    // Store ticket
+    // Store ticket in tickets
     let mut tickets = Tickets::from_storage(deps.storage);
     tickets.store_ticket(ticket_id, &ticket);
+
+    // Store event in guests tickets
+    let mut guests_tickets = GuestsTickets::from_storage(deps.storage);
+    let mut this_guests_tickets = guests_tickets.load_tickets(&guest);
+    this_guests_tickets.push(ticket_id);
+    guests_tickets.store_tickets(&guest, &this_guests_tickets);    
 
     // Respond with ticketID
     let response = Response::new().add_attribute("ticket_id", ticket_id.to_string());
@@ -324,8 +340,33 @@ fn query_balance(deps: Deps, address: Addr) -> StdResult<BalanceResponse> {
     Ok(BalanceResponse {balance: Uint128::from(balances.read_account_balance(&address_canon))})
 }
 
+fn query_events(deps: Deps, address: Addr) -> StdResult<EventsResponse> {
+
+    let address_canon = deps.api.addr_canonicalize(address.as_str())?;
+    let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.storage);
+    let this_organisers_events = organisers_events.load_events(&address_canon);
+    let mut return_vec = vec![];
+    for event in this_organisers_events {
+        return_vec.push(Uint128::from(event));
+    }
+    Ok(EventsResponse {events: return_vec})
+}
+
+fn query_tickets(deps: Deps, address: Addr) -> StdResult<TicketsResponse> {
+
+    let address_canon = deps.api.addr_canonicalize(address.as_str())?;
+    let guests_tickets= ReadonlyGuestsTickets::from_storage(deps.storage);
+    let this_guests_tickets = guests_tickets.load_tickets(&address_canon);
+    let mut return_vec = vec![];
+    for event in this_guests_tickets {
+        return_vec.push(Uint128::from(event));
+    }
+    Ok(TicketsResponse {tickets: return_vec})
+}
+
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     use crate::state::{ReadonlyBalances, get_config_readonly};
@@ -405,6 +446,7 @@ mod tests {
     fn create_event_proper() {
         // Instantiate contract
         let (owner, mut deps, _, _) = instantiate_test();
+        let owner_canon = deps.api.addr_canonicalize(owner.as_str()).unwrap();
 
         // Create event
         let price = Uint128::from(500u128);
@@ -429,6 +471,11 @@ mod tests {
         assert_eq!(event.get_tickets_sold(), 0);
         assert_eq!(deps.api.addr_humanize(event.get_organiser()).unwrap(), owner);
 
+        // Check in organisers events
+        let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.as_mut().storage);
+        let this_organisers_events = organisers_events.load_events(&owner_canon);
+        assert_eq!(*this_organisers_events.get(0).unwrap(), event_id);
+
         // Create event
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
         let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
@@ -436,7 +483,11 @@ mod tests {
         // Check proper event ID emitted
         let attribute = resp.attributes.pop().unwrap();
         assert_eq!(attribute.key, "event_id");
-        assert_eq!(attribute.value, "2");        
+        assert_eq!(attribute.value, "2"); 
+        
+        let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.as_mut().storage);
+        let this_organisers_events = organisers_events.load_events(&owner_canon);
+        assert_eq!(*this_organisers_events.get(1).unwrap(), 2);
     }
 
     #[test]

@@ -12,6 +12,8 @@ pub const KEY_CONFIG: &[u8] = b"config";
 pub const PREFIX_BALANCES: &[u8] = b"balances";
 pub const PREFIX_EVENTS: &[u8] = b"events";
 pub const PREFIX_TICKETS: &[u8] = b"tickets";
+pub const PREFIX_ORGANISERS_EVENTS: &[u8] = b"organisers_events";
+pub const PREFIX_GUESTS_TICKETS: &[u8] = b"guests_tickets";
 
 // Struct to store contract config
 #[derive(Serialize, Deserialize)]
@@ -195,8 +197,6 @@ impl<'a> Events<'a> {
             None => None
         }
     }
-
-    // Delete an event?
 }
 
 // Struct to handle READONLY interaction with events 
@@ -327,6 +327,108 @@ impl<'a> ReadonlyTickets<'a> {
         match self.storage.get(&id_bytes) {
             Some(ticket_bytes) => Option::Some(bincode::deserialize(&ticket_bytes).unwrap()),
             None => None
+        }
+    }
+}
+
+// Struct to handle interaction with organisers events
+pub struct OrganisersEvents<'a> {
+    storage: PrefixedStorage<'a>
+}
+
+impl<'a> OrganisersEvents<'a> {
+
+    // Retrieve prefixed storage
+    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+        Self {
+            storage: PrefixedStorage::new(storage, PREFIX_ORGANISERS_EVENTS)
+        }
+    }
+
+    // Store events
+    pub fn store_events(& mut self, organiser: &CanonicalAddr, events: &Vec<u128>) {
+        self.storage.set(&organiser.to_string().as_bytes(), &bincode::serialize(events).unwrap());
+    }    
+
+    // Load an organisers events
+    pub fn load_events(&self, organiser: &CanonicalAddr) -> Vec<u128> {
+        match self.storage.get(&organiser.to_string().as_bytes()) {
+            Some(events_bytes) => bincode::deserialize(&events_bytes).unwrap(),
+            None => vec![]
+        }
+    }
+}
+
+// Struct to handle READONLY interaction with organisers events
+pub struct ReadonlyOrganisersEvents<'a> {
+    storage: ReadonlyPrefixedStorage<'a>
+}
+
+impl<'a> ReadonlyOrganisersEvents<'a> {
+
+    // Retrieve prefixed storage
+    pub fn from_storage(storage: &'a dyn Storage) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(storage, PREFIX_ORGANISERS_EVENTS)
+        }
+    }
+
+    // Load an organisers events
+    pub fn load_events(&self, organiser: &CanonicalAddr) -> Vec<u128> {
+        match self.storage.get(&organiser.to_string().as_bytes()) {
+            Some(events_bytes) => bincode::deserialize(&events_bytes).unwrap(),
+            None => vec![]
+        }
+    }
+}
+
+// Struct to handle interaction with guests tickets
+pub struct GuestsTickets<'a> {
+    storage: PrefixedStorage<'a>
+}
+
+impl<'a> GuestsTickets<'a> {
+
+    // Retrieve prefixed storage
+    pub fn from_storage(storage: &'a mut dyn Storage) -> Self {
+        Self {
+            storage: PrefixedStorage::new(storage, PREFIX_GUESTS_TICKETS)
+        }
+    }
+
+    // Store tickets
+    pub fn store_tickets(& mut self, guest: &CanonicalAddr, tickets: &Vec<u128>) {
+        self.storage.set(&guest.to_string().as_bytes(), &bincode::serialize(tickets).unwrap());
+    }    
+
+    // Load an guests tickets
+    pub fn load_tickets(&self, guest: &CanonicalAddr) -> Vec<u128> {
+        match self.storage.get(&guest.to_string().as_bytes()) {
+            Some(tickets_bytes) => bincode::deserialize(&tickets_bytes).unwrap(),
+            None => vec![]
+        }
+    }
+}
+
+// Struct to handle READONLY interaction with organisers events
+pub struct ReadonlyGuestsTickets<'a> {
+    storage: ReadonlyPrefixedStorage<'a>
+}
+
+impl<'a> ReadonlyGuestsTickets<'a> {
+
+    // Retrieve prefixed storage
+    pub fn from_storage(storage: &'a dyn Storage) -> Self {
+        Self {
+            storage: ReadonlyPrefixedStorage::new(storage, PREFIX_GUESTS_TICKETS)
+        }
+    }
+
+    // Load an guests tickets
+    pub fn load_tickets(&self, guest: &CanonicalAddr) -> Vec<u128> {
+        match self.storage.get(&guest.to_string().as_bytes()) {
+            Some(tickets_bytes) => bincode::deserialize(&tickets_bytes).unwrap(),
+            None => vec![]
         }
     }
 }

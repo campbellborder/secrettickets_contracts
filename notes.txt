@@ -16,3 +16,20 @@ contract instantiated
     
 theres like 31 test events on this one now
 
+
+code uploaded 18/10 11:12
+(secret is 69 and enc doubles it -> 138)
+CAN READ ORGANISERS EVENTS AND GUESTS TICKETS
+    {
+        "code_id": 14583,
+        "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
+        "code_hash": "f4ebe3e01e8b99e258c9442834edf17bdf8090ff0216558cbd583e1a58a862cc"
+    }
+
+contract instantiated
+    {
+        "contract_address": "secret1e7nwkz4cuqd89qqk6e6534qhteyjxs86zr4m2h",
+        "code_id": 14583,
+        "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
+        "label": "secretticketsV6"
+    }
