@@ -1,17 +1,19 @@
 use cosmwasm_std::{
-    entry_point, to_binary, BankMsg, Coin, Deps, DepsMut, Env, MessageInfo, QueryResponse,
-    Response, StdError, StdResult, Uint128, Addr,
+    entry_point, to_binary, Addr, BankMsg, Coin, Deps, DepsMut, Env, MessageInfo, QueryResponse,
+    Response, StdError, StdResult, Uint128,
 };
 
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SoldOutResponse, BalanceResponse, EventsResponse, TicketsResponse};
-use crate::state::{
-    Config, get_config,
-    Balances, ReadonlyBalances,
-    Event, Events, ReadonlyEvents,
-    Ticket, Tickets, ReadonlyTickets,
-    OrganisersEvents, ReadonlyOrganisersEvents,
-    GuestsTickets, ReadonlyGuestsTickets
+use crate::msg::{
+    BalanceResponse, EventsResponse, ExecuteMsg, InstantiateMsg, QueryMsg, SoldOutResponse,
+    TicketsResponse,
 };
+use crate::state::{
+    get_config, Balances, Config, Event, Events, GuestsTickets, OrganisersEvents, ReadonlyBalances,
+    ReadonlyEvents, ReadonlyGuestsTickets, ReadonlyOrganisersEvents, ReadonlyTickets, Ticket,
+    Tickets,
+};
+
+use extprim::u128;
 
 #[entry_point]
 pub fn instantiate(
@@ -40,22 +42,24 @@ pub fn execute(
     match msg {
         ExecuteMsg::Deposit {} => try_deposit(deps, info),
         ExecuteMsg::Withdraw { amount } => try_withdraw(deps, info, amount),
-        ExecuteMsg::CreateEvent { price, max_tickets } => {
-            try_create_event(deps, info, price, max_tickets)
+        ExecuteMsg::CreateEvent { price, max_tickets, entropy } => {
+            try_create_event(deps, info, price, max_tickets, entropy)
         }
-        ExecuteMsg::BuyTicket { event_id } => try_buy_ticket(deps, info, event_id),
+        ExecuteMsg::BuyTicket { event_id, entropy } => try_buy_ticket(deps, info, event_id, entropy),
         ExecuteMsg::VerifyTicket { ticket_id } => try_verify_ticket(deps, info, ticket_id),
-        ExecuteMsg::VerifyGuest { ticket_id, secret } => try_verify_guest(deps, info, ticket_id, secret),
+        ExecuteMsg::VerifyGuest { ticket_id, secret } => {
+            try_verify_guest(deps, info, ticket_id, secret)
+        }
     }
 }
 
 #[entry_point]
 pub fn query(deps: Deps, _env: Env, msg: QueryMsg) -> StdResult<QueryResponse> {
     match msg {
-        QueryMsg::EventSoldOut {event_id} => to_binary(&query_event_sold_out(deps, event_id)?),
-        QueryMsg::Balance {address} => to_binary(&query_balance(deps, address)?),
+        QueryMsg::EventSoldOut { event_id } => to_binary(&query_event_sold_out(deps, event_id)?),
+        QueryMsg::Balance { address } => to_binary(&query_balance(deps, address)?),
         QueryMsg::Events { address } => to_binary(&query_events(deps, address)?),
-        QueryMsg::Tickets { address } => to_binary(&query_tickets(deps, address)?)
+        QueryMsg::Tickets { address } => to_binary(&query_tickets(deps, address)?),
     }
 }
 
@@ -133,10 +137,12 @@ pub fn try_create_event(
     info: MessageInfo,
     price: Uint128,
     max_tickets: Uint128,
+    entropy: Uint128
 ) -> Result<Response, StdError> {
     // Get raw inputs and organiser address
     let price_raw = price.u128();
     let max_tickets_raw = max_tickets.u128();
+    let entropy_raw = entropy.u128();
     let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Get next event ID
@@ -145,7 +151,7 @@ pub fn try_create_event(
     get_config(deps.storage).save(&config)?;
 
     // Create event
-    let event = Event::new(event_id, organiser.clone(), price_raw, max_tickets_raw);
+    let event = Event::new(event_id, organiser.clone(), price_raw, max_tickets_raw, entropy_raw);
 
     // Store event in events
     let mut events = Events::from_storage(deps.storage);
@@ -166,9 +172,11 @@ pub fn try_buy_ticket(
     deps: DepsMut,
     info: MessageInfo,
     event_id: Uint128,
+    entropy: Uint128
 ) -> Result<Response, StdError> {
     // Get raw inputs and guest address
     let event_id_raw = event_id.u128();
+    let entropy_raw = entropy.u128();
     let guest = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Ensure event exists and is not sold out
@@ -200,7 +208,7 @@ pub fn try_buy_ticket(
     balances.set_account_balance(event.get_organiser(), organiser_balance + event_price);
 
     // Record ticket sale in event
-    event.ticket_sold();
+    event.ticket_sold(entropy_raw);
     let mut events = Events::from_storage(deps.storage);
     events.store_event(event.get_id(), &event);
 
@@ -210,7 +218,8 @@ pub fn try_buy_ticket(
     get_config(deps.storage).save(&config)?;
 
     // Create ticket
-    let ticket = Ticket::new(ticket_id, event_id_raw, guest.clone());
+    let secret = event.generate_secret(u128::u128::from_built_in(ticket_id));
+    let ticket = Ticket::new(ticket_id, event_id_raw, guest.clone(), secret);
 
     // Store ticket in tickets
     let mut tickets = Tickets::from_storage(deps.storage);
@@ -220,7 +229,7 @@ pub fn try_buy_ticket(
     let mut guests_tickets = GuestsTickets::from_storage(deps.storage);
     let mut this_guests_tickets = guests_tickets.load_tickets(&guest);
     this_guests_tickets.push(ticket_id);
-    guests_tickets.store_tickets(&guest, &this_guests_tickets);    
+    guests_tickets.store_tickets(&guest, &this_guests_tickets);
 
     // Respond with ticketID
     let response = Response::new().add_attribute("ticket_id", ticket_id.to_string());
@@ -232,7 +241,6 @@ pub fn try_verify_ticket(
     info: MessageInfo,
     ticket_id: Uint128,
 ) -> Result<Response, StdError> {
-
     // Get raw inputs and 'organiser' address
     let ticket_id_raw = ticket_id.u128();
     let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
@@ -248,14 +256,18 @@ pub fn try_verify_ticket(
 
     // Ensure ticket is not used
     if ticket.get_state() == 2 {
-        return Err(StdError::generic_err(format!("Ticket has already been used")));
+        return Err(StdError::generic_err(format!(
+            "Ticket has already been used"
+        )));
     }
 
     // Check message sender is organiser of event
     let events = ReadonlyEvents::from_storage(deps.storage);
     let event = events.may_load_event(ticket.get_event_id()).unwrap();
     if *event.get_organiser() != organiser {
-        return Err(StdError::generic_err(format!("You are not the organiser of this event")));
+        return Err(StdError::generic_err(format!(
+            "You are not the organiser of this event"
+        )));
     }
 
     // Generate secret and set ticket status to validating
@@ -277,10 +289,9 @@ pub fn try_verify_guest(
     ticket_id: Uint128,
     secret: Uint128,
 ) -> Result<Response, StdError> {
-
     // Get raw inputs and 'organiser' address
     let ticket_id_raw = ticket_id.u128();
-    let secret_raw = secret.u128();
+    let secret_raw = u128::u128::from_built_in(secret.u128()).low64();
     let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Ensure ticket exists and load it
@@ -294,17 +305,31 @@ pub fn try_verify_guest(
 
     // Ensure ticket is in validating state
     match ticket.get_state() {
-        0 => return Err(StdError::generic_err(format!("Validation of ticket not initiated yet"))),
+        0 => {
+            return Err(StdError::generic_err(format!(
+                "Validation of ticket not initiated yet"
+            )))
+        }
         1 => (),
-        2 => return Err(StdError::generic_err(format!("Ticket has already been used"))),
-        _ => return Err(StdError::generic_err(format!("Ticket is somehow in invalid state"))),
+        2 => {
+            return Err(StdError::generic_err(format!(
+                "Ticket has already been used"
+            )))
+        }
+        _ => {
+            return Err(StdError::generic_err(format!(
+                "Ticket is somehow in invalid state"
+            )))
+        }
     };
 
     // Check message sender is organiser of event
     let events = ReadonlyEvents::from_storage(deps.storage);
     let event = events.may_load_event(ticket.get_event_id()).unwrap();
     if *event.get_organiser() != organiser {
-        return Err(StdError::generic_err(format!("You are not the organiser of this event")));
+        return Err(StdError::generic_err(format!(
+            "You are not the organiser of this event"
+        )));
     }
 
     // Check if secret is correct
@@ -313,35 +338,31 @@ pub fn try_verify_guest(
             let mut tickets = Tickets::from_storage(deps.storage);
             tickets.store_ticket(ticket_id_raw, &ticket);
             Ok(Response::default())
-        },
-        Err(err) => Err(err)
+        }
+        Err(err) => Err(err),
     }
-
 }
 
 fn query_event_sold_out(deps: Deps, event_id: Uint128) -> StdResult<SoldOutResponse> {
-
     let event_id_raw = event_id.u128();
     let events = ReadonlyEvents::from_storage(deps.storage);
     match events.may_load_event(event_id_raw) {
-        Some(event) => {
-            Ok(SoldOutResponse { sold_out: event.is_sold_out() })
-        }
-        None => {
-            Err(StdError::generic_err(format!("Event does not exist",)))
-        }
+        Some(event) => Ok(SoldOutResponse {
+            sold_out: event.is_sold_out(),
+        }),
+        None => Err(StdError::generic_err(format!("Event does not exist",))),
     }
 }
 
 fn query_balance(deps: Deps, address: Addr) -> StdResult<BalanceResponse> {
-
     let address_canon = deps.api.addr_canonicalize(address.as_str())?;
     let balances = ReadonlyBalances::from_storage(deps.storage);
-    Ok(BalanceResponse {balance: Uint128::from(balances.read_account_balance(&address_canon))})
+    Ok(BalanceResponse {
+        balance: Uint128::from(balances.read_account_balance(&address_canon)),
+    })
 }
 
 fn query_events(deps: Deps, address: Addr) -> StdResult<EventsResponse> {
-
     let address_canon = deps.api.addr_canonicalize(address.as_str())?;
     let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.storage);
     let this_organisers_events = organisers_events.load_events(&address_canon);
@@ -349,27 +370,33 @@ fn query_events(deps: Deps, address: Addr) -> StdResult<EventsResponse> {
     for event in this_organisers_events {
         return_vec.push(Uint128::from(event));
     }
-    Ok(EventsResponse {events: return_vec})
+    Ok(EventsResponse { events: return_vec })
 }
 
 fn query_tickets(deps: Deps, address: Addr) -> StdResult<TicketsResponse> {
-
     let address_canon = deps.api.addr_canonicalize(address.as_str())?;
-    let guests_tickets= ReadonlyGuestsTickets::from_storage(deps.storage);
+    let guests_tickets = ReadonlyGuestsTickets::from_storage(deps.storage);
     let this_guests_tickets = guests_tickets.load_tickets(&address_canon);
-    let tickets = ReadonlyTickets:: from_storage(deps.storage);
+    let tickets = ReadonlyTickets::from_storage(deps.storage);
 
     let mut tickets_vec = vec![];
     let mut events_vec = vec![];
+    let mut state_vec: Vec<Uint128> = vec![];
     for ticket_id in this_guests_tickets {
-        // Add ticket id to vec
-        tickets_vec.push(Uint128::from(ticket_id));
 
         // Load ticket
         let ticket = tickets.may_load_ticket(ticket_id).unwrap();
+
+        // Create return vectors
+        tickets_vec.push(Uint128::from(ticket_id));
         events_vec.push(Uint128::from(ticket.get_event_id()));
+        state_vec.push(Uint128::from(ticket.get_state()));
     }
-    Ok(TicketsResponse {tickets: tickets_vec, events: events_vec})
+    Ok(TicketsResponse {
+        tickets: tickets_vec,
+        events: events_vec,
+        states: state_vec,
+    })
 }
 
 #[cfg(test)]
@@ -377,7 +404,7 @@ mod tests {
 
     use super::*;
 
-    use crate::state::{ReadonlyBalances, get_config_readonly};
+    use crate::state::{get_config_readonly, ReadonlyBalances};
     use cosmwasm_std::coins;
     use cosmwasm_std::testing::{
         mock_dependencies, mock_env, mock_info, MockApi, MockQuerier, MockStorage,
@@ -404,7 +431,6 @@ mod tests {
 
     #[test]
     fn instantiate_proper() {
-
         let (owner, deps, _, _) = instantiate_test();
 
         // Check if owner is correct
@@ -414,7 +440,6 @@ mod tests {
 
     #[test]
     fn deposit_proper() {
-
         // Instantiate contract
         let (owner, mut deps, _, _) = instantiate_test();
 
@@ -460,8 +485,9 @@ mod tests {
         let price = Uint128::from(500u128);
         let max_tickets = Uint128::from(500u128);
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
-        
+        let entropy = Uint128::from(1827391824732872934872u128);
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets, entropy).unwrap();
+
         // Check proper event ID emitted
         let attribute = resp.attributes.pop().unwrap();
         assert_eq!(attribute.key, "event_id");
@@ -477,7 +503,10 @@ mod tests {
         assert_eq!(event.get_price(), price.u128());
         assert_eq!(event.get_max_tickets(), max_tickets.u128());
         assert_eq!(event.get_tickets_sold(), 0);
-        assert_eq!(deps.api.addr_humanize(event.get_organiser()).unwrap(), owner);
+        assert_eq!(
+            deps.api.addr_humanize(event.get_organiser()).unwrap(),
+            owner
+        );
 
         // Check in organisers events
         let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.as_mut().storage);
@@ -485,14 +514,15 @@ mod tests {
         assert_eq!(*this_organisers_events.get(0).unwrap(), event_id);
 
         // Create event
+        let entropy = Uint128::from(1827391824732872934872u128);
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
-        
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets, entropy).unwrap();
+
         // Check proper event ID emitted
         let attribute = resp.attributes.pop().unwrap();
         assert_eq!(attribute.key, "event_id");
-        assert_eq!(attribute.value, "2"); 
-        
+        assert_eq!(attribute.value, "2");
+
         let organisers_events = ReadonlyOrganisersEvents::from_storage(deps.as_mut().storage);
         let this_organisers_events = organisers_events.load_events(&owner_canon);
         assert_eq!(*this_organisers_events.get(1).unwrap(), 2);
@@ -512,14 +542,16 @@ mod tests {
         let price = Uint128::from(50u128);
         let max_tickets = Uint128::from(500u128);
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
+        let entropy = Uint128::from(3457263458762u128);
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets, entropy).unwrap();
         let attribute = resp.attributes.pop().unwrap();
         let event_id: u128 = attribute.value.parse().unwrap();
 
         // Buy ticket
+        let entropy = Uint128::from(1827391824732872934872u128);
         let info = mock_info(guest.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_buy_ticket(deps.as_mut(), info, Uint128::from(event_id)).unwrap();
-        
+        let mut resp = try_buy_ticket(deps.as_mut(), info, Uint128::from(event_id), entropy).unwrap();
+
         // Check proper ticket ID emitted
         let attribute = resp.attributes.pop().unwrap();
         assert_eq!(attribute.key, "ticket_id");
@@ -549,10 +581,10 @@ mod tests {
         let organiser_address = deps.api.addr_canonicalize(owner.as_str()).unwrap();
         let balances = ReadonlyBalances::from_storage(deps.as_mut().storage);
         let organiser_balance = balances.read_account_balance(&organiser_address);
-        assert_eq!(organiser_balance, 50);        
+        assert_eq!(organiser_balance, 50);
     }
 
-    #[test] 
+    #[test]
     fn verify_ticket_proper() {
         // Instantiate contract
         let (owner, mut deps, _, _) = instantiate_test();
@@ -566,13 +598,15 @@ mod tests {
         let price = Uint128::from(50u128);
         let max_tickets = Uint128::from(500u128);
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets).unwrap();
+        let entropy = Uint128::from(3457263458762u128);
+        let mut resp = try_create_event(deps.as_mut(), info, price, max_tickets, entropy).unwrap();
         let attribute = resp.attributes.pop().unwrap();
         let event_id: u128 = attribute.value.parse().unwrap();
 
         // Buy ticket
+        let entropy = Uint128::from(1827391824732872934872u128);
         let info = mock_info(guest.as_str(), &coins(0, "uscrt"));
-        let mut resp = try_buy_ticket(deps.as_mut(), info, Uint128::from(event_id)).unwrap();
+        let mut resp = try_buy_ticket(deps.as_mut(), info, Uint128::from(event_id), entropy).unwrap();
 
         // Get ticket
         let attribute = resp.attributes.pop().unwrap();
@@ -583,7 +617,7 @@ mod tests {
         let mut resp = try_verify_ticket(deps.as_mut(), info, Uint128::from(ticket_id)).unwrap();
         let attribute = resp.attributes.pop().unwrap();
         assert_eq!(attribute.key, "secret_encrypted");
-        assert_eq!(attribute.value, "138");
+        assert_eq!(attribute.value, "9662036190035425912");
         let _secret_encrypted: u128 = attribute.value.parse().unwrap();
 
         // Check ticket is in validating state
@@ -593,13 +627,18 @@ mod tests {
 
         // Validate guest
         let info = mock_info(owner.as_str(), &coins(0, "uscrt"));
-        try_verify_guest(deps.as_mut(), info, Uint128::from(ticket_id), Uint128::from(69u128)).unwrap();
+        try_verify_guest(
+            deps.as_mut(),
+            info,
+            Uint128::from(ticket_id),
+            Uint128::from(9662036190035425912u128.div_euclid(2)),
+        )
+        .unwrap();
 
         // Check ticket is in used state
         let tickets = ReadonlyTickets::from_storage(deps.as_mut().storage);
         let ticket = tickets.may_load_ticket(ticket_id).unwrap();
         assert_eq!(ticket.get_state(), 2);
-
     }
 
     #[test]
@@ -628,6 +667,7 @@ mod tests {
 
     #[test]
     fn withdraw_not_enough_funds() {
+        
         // Instantiate contract
         let (owner, mut deps, _, _) = instantiate_test();
 

@@ -5,7 +5,11 @@ use cosmwasm_storage::{
 };
 
 use serde::{Serialize, Deserialize};
+use sha2::{Sha256, Digest};
+use rand::{RngCore, SeedableRng};
+use rand_chacha::ChaChaRng;
 use bincode;
+use extprim::u128;
 
 // Storage keys
 pub const KEY_CONFIG: &[u8] = b"config";
@@ -127,17 +131,25 @@ pub struct Event {
     organiser: CanonicalAddr,
     price: u128,
     max_tickets: u128,
-    tickets_sold: u128
+    tickets_sold: u128,
+    seed:  [u8; 32]
 }
 
 impl Event {
-    pub fn new(id: u128, organiser: CanonicalAddr, price: u128, max_tickets: u128) -> Self {
+    pub fn new(id: u128, organiser: CanonicalAddr, price: u128, max_tickets: u128, entropy: u128) -> Self {
+
+        // Create seed
+        let mut hasher = Sha256::new();
+        hasher.update(entropy.to_be_bytes().as_slice());
+        let seed = hasher.finalize().into();
+
         Event {
-            id: id,
-            organiser: organiser,
-            price: price,
-            max_tickets: max_tickets,
-            tickets_sold: 0
+            id,
+            organiser,
+            price,
+            max_tickets,
+            tickets_sold: 0,
+            seed
         }
     }
 
@@ -165,8 +177,19 @@ impl Event {
         self.tickets_sold >= self.max_tickets
     }
 
-    pub fn ticket_sold(& mut self) {
+    pub fn ticket_sold(& mut self, entropy: u128) {
         self.tickets_sold += 1;
+
+        // Update seed
+        let mut hasher = Sha256::new_with_prefix(&self.seed);
+        hasher.update(entropy.to_be_bytes().as_slice());
+        self.seed = hasher.finalize().into();
+    }
+
+    pub fn generate_secret(&self, ticket_id: u128::u128) -> u64 {
+        let mut rng = ChaChaRng::from_seed(self.seed);
+        rng.set_stream(ticket_id.low64());
+        rng.next_u64()
     }
 }
 
@@ -229,17 +252,17 @@ pub struct Ticket {
     guest: CanonicalAddr,
     event_id: u128,
     state: u8,
-    secret: u128
+    secret: u64
 }
 
 impl Ticket {
-    pub fn new(id: u128, event_id: u128, guest: CanonicalAddr) -> Self {
+    pub fn new(id: u128, event_id: u128, guest: CanonicalAddr, secret: u64) -> Self {
         Ticket {
-            id: id, 
-            event_id: event_id, 
-            guest: guest,
+            id, 
+            event_id, 
+            guest,
             state: 0,
-            secret: 0
+            secret
         }
     }
 
@@ -259,13 +282,12 @@ impl Ticket {
         self.state
     }
 
-    pub fn start_validation(&mut self) -> u128 {
+    pub fn start_validation(&mut self) -> u64 {
         self.state = 1;
-        self.secret = 69;
         self.secret
     }
 
-    pub fn try_verify(&mut self, secret: u128) -> StdResult<()> {
+    pub fn try_verify(&mut self, secret: u64) -> StdResult<()> {
         if self.secret != secret {
             return Err(StdError::generic_err("Secret does not match"));
         }
