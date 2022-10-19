@@ -137,12 +137,17 @@ pub fn try_create_event(
     info: MessageInfo,
     price: Uint128,
     max_tickets: Uint128,
-    entropy: Uint128
+    entropy: String
 ) -> Result<Response, StdError> {
     // Get raw inputs and organiser address
     let price_raw = price.u128();
     let max_tickets_raw = max_tickets.u128();
-    let entropy_raw = entropy.u128();
+    let entropy_raw = match u128::from_str_radix(&entropy, 16) {
+        Result::Ok(number) => number,
+        Result::Err(_) => {
+            return Err(StdError::generic_err(format!("Entropy is not a valid 32 byte hex string",)));
+        }
+    };
     let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Get next event ID
@@ -172,11 +177,16 @@ pub fn try_buy_ticket(
     deps: DepsMut,
     info: MessageInfo,
     event_id: Uint128,
-    entropy: Uint128
+    entropy: String
 ) -> Result<Response, StdError> {
     // Get raw inputs and guest address
     let event_id_raw = event_id.u128();
-    let entropy_raw = entropy.u128();
+    let entropy_raw = match u128::from_str_radix(&entropy, 16) {
+        Result::Ok(number) => number,
+        Result::Err(_) => {
+            return Err(StdError::generic_err(format!("Entropy is not a valid 32 byte hex string",)));
+        }
+    };
     let guest = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Ensure event exists and is not sold out
@@ -276,10 +286,10 @@ pub fn try_verify_ticket(
     tickets.store_ticket(ticket_id_raw, &ticket);
 
     // Encrypt with public key of guest - NOT IMPLEMENTED
-    let secret_encrypted = secret * 2;
+    let secret_encrypted = secret;
 
     // Respond with encrypted secret
-    let response = Response::new().add_attribute("secret_encrypted", secret_encrypted.to_string());
+    let response = Response::new().add_attribute("secret_encrypted", format!("{:X}", secret_encrypted));
     Ok(response)
 }
 
@@ -287,11 +297,16 @@ pub fn try_verify_guest(
     deps: DepsMut,
     info: MessageInfo,
     ticket_id: Uint128,
-    secret: Uint128,
+    secret: String,
 ) -> Result<Response, StdError> {
     // Get raw inputs and 'organiser' address
     let ticket_id_raw = ticket_id.u128();
-    let secret_raw = u128::u128::from_built_in(secret.u128()).low64();
+    let secret_raw = match u64::from_str_radix(&secret, 16) {
+        Result::Ok(number) => number,
+        Result::Err(_) => {
+            return Err(StdError::generic_err(format!("Secret is not a valid 16 byte hex string",)));
+        }
+    };
     let organiser = deps.api.addr_canonicalize(info.sender.as_str()).unwrap();
 
     // Ensure ticket exists and load it
@@ -667,7 +682,7 @@ mod tests {
 
     #[test]
     fn withdraw_not_enough_funds() {
-        
+
         // Instantiate contract
         let (owner, mut deps, _, _) = instantiate_test();
 

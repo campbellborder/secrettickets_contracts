@@ -52,18 +52,18 @@ contract instantiated
         "label": "secretticketsV7"
     }
 
-code uploaded 19/10 20:00
-(secret is random and enc doubles it)
+code uploaded 19/10 21:30
+(secret is random and enc does nothing
     {
-        "code_id": 14637,
+        "code_id": 14664,
         "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
-        "code_hash": "0d8734e3eb9e34eda91ffc6344c45e3bd585353a5e25b4b488433f1a3e29bdd0"
+        "code_hash": "3587ba47094fce51b61b2fe9b28b36556b0c760af01dd7595d6d0d469db3aacc"
     }
 
 contract instantiated
     {
-        "contract_address": "secret1tmansgshjlrp5ree5txz2vef0uwyv5eqt3e4ah",
-        "code_id": 14637,
+        "contract_address": "secret13f8h82muue8xulzhrzgcp60qck9uxamn56ug4s",
+        "code_id": 14664,
         "creator": "secret138uk0sk22ne7665h4rvhywh62j8ea0y7yn8ukq",
-        "label": "secretticketsV8"
+        "label": "secretticketsV9"
     }

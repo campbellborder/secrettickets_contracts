@@ -15,18 +15,18 @@ pub enum ExecuteMsg {
     CreateEvent {
         price: Uint128,
         max_tickets: Uint128,
-        entropy: Uint128
+        entropy: String
     },
     BuyTicket {
         event_id: Uint128,
-        entropy: Uint128
+        entropy: String
     },
     VerifyTicket {
         ticket_id: Uint128,
     },
     VerifyGuest {
         ticket_id: Uint128,
-        secret: Uint128,
+        secret: String,
     },
 }
 
