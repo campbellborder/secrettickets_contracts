@@ -301,6 +301,7 @@ pub fn try_verify_ticket(
 
     // Generate secret and set ticket status to validating
     let secret = ticket.start_validation();
+    let secret: u64 = 69;
     let pk = ticket.get_pk();
     let mut tickets = Tickets::from_storage(deps.storage);
     tickets.store_ticket(ticket_id_raw, &ticket);
