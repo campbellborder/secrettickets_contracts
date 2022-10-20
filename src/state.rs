@@ -161,6 +161,10 @@ impl Event {
         &self.organiser
     }
 
+    pub fn get_seed(&self) -> [u8; 32] {
+        self.seed
+    }
+
     pub fn get_price(&self) -> u128 {
         self.price
     }
@@ -171,6 +175,10 @@ impl Event {
 
     pub fn get_tickets_sold(&self) -> u128 {
         self.tickets_sold
+    }
+
+    pub fn get_tickets_left(&self) -> u128 {
+        self.max_tickets - self.tickets_sold
     }
 
     pub fn is_sold_out(&self) -> bool {
@@ -252,17 +260,19 @@ pub struct Ticket {
     guest: CanonicalAddr,
     event_id: u128,
     state: u8,
-    secret: u64
+    secret: u64, 
+    pk: String
 }
 
 impl Ticket {
-    pub fn new(id: u128, event_id: u128, guest: CanonicalAddr, secret: u64) -> Self {
+    pub fn new(id: u128, event_id: u128, guest: CanonicalAddr, secret: u64, pk: String) -> Self {
         Ticket {
             id, 
             event_id, 
             guest,
             state: 0,
-            secret
+            secret,
+            pk
         }
     }
 
@@ -280,6 +290,10 @@ impl Ticket {
 
     pub fn get_state(&self) -> u8 {
         self.state
+    }
+
+    pub fn get_pk(&self) -> String {
+        self.pk.clone()
     }
 
     pub fn start_validation(&mut self) -> u64 {

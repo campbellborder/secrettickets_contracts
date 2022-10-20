@@ -19,7 +19,8 @@ pub enum ExecuteMsg {
     },
     BuyTicket {
         event_id: Uint128,
-        entropy: String
+        entropy: String,
+        pk: String
     },
     VerifyTicket {
         ticket_id: Uint128,
@@ -63,6 +64,7 @@ pub struct BalanceResponse {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct EventsResponse {
     pub events: Vec<Uint128>,
+    pub tickets_left: Vec<Uint128>,
 }
 
 // Response for Tickets query
